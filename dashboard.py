@@ -86,7 +86,7 @@ def add_baseline(fig, val):
     return fig
 
 
-# ── DATA ──
+
 @st.cache_data
 def load_data():
     df = pd.read_csv("employees.csv")
@@ -171,7 +171,7 @@ tab1, tab2, tab3 = st.tabs(["📈 Key drivers", "🔎 Supporting factors", "🔀
 # ══════════ TAB 1: KEY DRIVERS ══════════
 with tab1:
 
-    # -- Job Level (full width, proper height) --
+   
     jl = rate_by(fdf, "Job Level")
     if len(jl) > 0:
         highest_jl = jl.loc[jl["Rate"].idxmax()]
@@ -188,7 +188,6 @@ with tab1:
 
     st.markdown("---")
 
-    # -- Remote Work (full width) --
     rw = rate_by(fdf, "Remote Work")
     if len(rw) > 0:
         fig = px.bar(rw, x="Remote Work", y="Rate", text_auto=".1f",
@@ -208,7 +207,7 @@ with tab1:
 
     st.markdown("---")
 
-    # -- Work-Life Balance (full width area) --
+   
     wlb = rate_by(fdf, "Work-Life Balance")
     if len(wlb) > 0:
         fig = px.area(wlb, x="Work-Life Balance", y="Rate", markers=True,
@@ -225,13 +224,12 @@ with tab1:
         cta(f'1) Break down work-life balance scores by team/manager to identify whether the issue is concentrated in specific teams or company-wide. 2) Introduce a monthly pulse survey (3 questions max) to catch deterioration early. 3) For teams with consistently Poor/Fair scores, investigate root causes — workload, management style, or role design — before prescribing solutions.')
 
 
-# ══════════ TAB 2: SUPPORTING FACTORS ══════════
 with tab2:
 
     c1, c2 = st.columns(2)
 
     with c1:
-        # Gender: compute the gap, then control for Job Level and Remote Work
+    
         gen = rate_by(fdf, "Gender")
         if len(gen) > 0:
             f_r = safe_rate(fdf, "Gender", "Female")
@@ -243,7 +241,7 @@ with tab2:
             gen_jl.columns = ["Gender", "Job Level", "Rate"]
             gen_jl["Rate"] = (gen_jl["Rate"] * 100).round(1)
 
-            # Calculate avg gap within each job level
+          
             controlled_gaps = []
             for level in fdf["Job Level"].dropna().unique():
                 sub = gen_jl[gen_jl["Job Level"] == level]
@@ -253,7 +251,7 @@ with tab2:
                     controlled_gaps.append(abs(f_val - m_val))
             avg_controlled_gap = round(np.mean(controlled_gaps), 1) if controlled_gaps else 0
 
-            # Show grouped bar: Gender × Job Level
+         
             fig = px.bar(gen_jl, x="Job Level", y="Rate", color="Gender",
                          barmode="group", text_auto=".1f",
                          color_discrete_map={"Female": "#7C78EA", "Male": BLUE},
@@ -264,7 +262,7 @@ with tab2:
             fig.update_traces(textposition="outside")
             st.plotly_chart(fig, use_container_width=True)
 
-            # Dynamic insight based on whether gap persists
+           
             if avg_controlled_gap >= 5:
                 insight(f'Raw gap: Female {f_r}% vs Male {m_r}% ({raw_gap}pp). After controlling for job level, the gap averages {avg_controlled_gap}pp within each level — the gender effect persists independently of seniority. This warrants a gender-specific investigation.')
                 cta(f'1) The gap is real and not explained by job level alone. Conduct focus groups with female employees to identify retention barriers. 2) Audit promotion rates by gender — if female employees are promoted slower, that compounds the effect. 3) Review exit interview data for gender-specific patterns.')
@@ -286,24 +284,24 @@ with tab2:
             low_r = safe_rate(fdf, "Job Satisfaction", "Low")
             vh_r = safe_rate(fdf, "Job Satisfaction", "Very High")
 
-            # Cross-reference: profile Very High satisfaction leavers
+            
             vh_left = fdf[(fdf["Job Satisfaction"] == "Very High") & (fdf["Attrition"] == "Left")]
             vh_stayed = fdf[(fdf["Job Satisfaction"] == "Very High") & (fdf["Attrition"] == "Stayed")]
 
             if len(vh_left) > 0 and len(vh_stayed) > 0:
-                # What % are entry-level?
+               
                 vh_left_entry = round((vh_left["Job Level"] == "Entry").mean() * 100, 1)
                 vh_stayed_entry = round((vh_stayed["Job Level"] == "Entry").mean() * 100, 1)
-                # What % work on-site?
+             
                 vh_left_onsite = round((vh_left["Remote Work"] == "No").mean() * 100, 1)
                 vh_stayed_onsite = round((vh_stayed["Remote Work"] == "No").mean() * 100, 1)
-                # What % do overtime?
+                
                 vh_left_ot = round((vh_left["Overtime"] == "Yes").mean() * 100, 1)
                 vh_stayed_ot = round((vh_stayed["Overtime"] == "Yes").mean() * 100, 1)
 
                 insight(f'Low satisfaction ({low_r}%) and Very High ({vh_r}%) both have peak attrition. Profiling Very High leavers vs stayers: {vh_left_entry}% of leavers are Entry-level (vs {vh_stayed_entry}% of stayers), {vh_left_onsite}% work on-site (vs {vh_stayed_onsite}%), and {vh_left_ot}% do overtime (vs {vh_stayed_ot}%).')
 
-                # Dynamic CTA based on what the profile reveals
+                
                 drivers = []
                 if vh_left_entry - vh_stayed_entry > 5:
                     drivers.append(f"entry-level concentration ({vh_left_entry}% vs {vh_stayed_entry}%)")
@@ -350,7 +348,7 @@ with tab2:
 
             phd_r = safe_rate(fdf, "Education Level", "PhD")
 
-            # Compute: are the non-PhD levels actually the same?
+           
             non_phd_levels = ["High School", "Associate Degree", "Bachelor's Degree", "Master's Degree"]
             non_phd_rates = [safe_rate(fdf, "Education Level", lvl) for lvl in non_phd_levels if safe_rate(fdf, "Education Level", lvl) > 0]
             non_phd_spread = round(max(non_phd_rates) - min(non_phd_rates), 1) if non_phd_rates else 0
@@ -383,7 +381,6 @@ with tab2:
                 cta('Broaden filters to enable PhD profiling.')
 
 
-# ══════════ TAB 3: RISK COMBINATIONS ══════════
 with tab3:
     st.markdown(f"<p style='color:{GRAY};font-size:14px'>Single-variable analysis misses compounding effects. These show which <b>combinations</b> create the highest risk.</p>", unsafe_allow_html=True)
 
