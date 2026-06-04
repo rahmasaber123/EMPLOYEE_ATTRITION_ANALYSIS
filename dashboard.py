@@ -110,7 +110,7 @@ with open("logo.png", "rb") as f:
     logo_b64 = base64.b64encode(f.read()).decode()
 
 st.markdown(f"""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;flex-direction:row-reverse">
+<div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;flex-direction:row-reverse;justify-content:center">
     <img src="data:image/png;base64,{logo_b64}" style="height:50px"/>
     <div>
         <h2 style="margin:0;color:{DARK}">Employee Attrition Analytics</h2>
