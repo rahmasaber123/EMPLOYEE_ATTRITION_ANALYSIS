@@ -2,448 +2,489 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
+import plotly.graph_objects as go
+import base64
 
-st.set_page_config(page_title="Kayfa HR Analytics", page_icon="📊", layout="wide")
-BLUE = "#4338E0"
-LIGHT_BLUE = "#E8E7FB"
-WHITE = "#FFFFFF"
-GRAY = "#6B7280"
-DARK = "#1E1B4B"
+st.set_page_config(page_title="Kayfa HR Analytics", page_icon="favicon.png", layout="wide")
+
+# ── THEME-AWARE HELPERS ──
+PRIMARY = "#4338E0"
+GREEN = "#10B981"
+RED = "#EF4444"
 
 st.markdown("""
 <style>
-    .block-container {padding-top: 1.5rem;}
-    .stTabs [data-baseweb="tab-list"] {gap: 8px;}
-    .stTabs [data-baseweb="tab"] {
-        background: white; border-radius: 8px; padding: 8px 20px;
-        border: 1px solid #E5E7EB; font-weight: 500;
+    .insight-card {
+        border-left: 4px solid #4338E0;
+        border-radius: 0 10px 10px 0;
+        padding: 14px 18px;
+        margin: 8px 0;
+        background: rgba(67, 56, 224, 0.06);
     }
-    .stTabs [aria-selected="true"] {
-        background: #4338E0 !important; color: white !important;
-        border: 1px solid #4338E0;
+    .insight-card p { margin: 0; font-size: 14px; line-height: 1.6; }
+    .cta-card {
+        border-left: 4px solid #10B981;
+        border-radius: 0 10px 10px 0;
+        padding: 14px 18px;
+        margin: 4px 0 16px;
+        background: rgba(16, 185, 129, 0.06);
     }
-    .kpi-card {
-        background: white; border-radius: 12px; padding: 18px 20px;
-        border: 1px solid #E5E7EB; text-align: center;
+    .cta-card p { margin: 0; font-size: 14px; line-height: 1.6; }
+    .metric-card {
+        border-radius: 12px;
+        padding: 20px;
+        text-align: center;
+        border: 1px solid rgba(0,0,0,0.08);
     }
-    .kpi-val {font-size: 26px; font-weight: 700; margin: 2px 0;}
-    .kpi-label {font-size: 12px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.8px;}
-    .kpi-sub {font-size: 12px; margin-top: 2px;}
-    .insight-box {
-        background: #F0EFFF; border-left: 4px solid #4338E0;
-        border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 6px 0;
-    }
-    .insight-box p {margin: 0; font-size: 13px; color: #1E1B4B;}
-    .cta-box {
-        background: #ECFDF5; border-left: 4px solid #10B981;
-        border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 4px 0 10px;
-    }
-    .cta-box p {margin: 0; font-size: 13px; color: #065F46;}
+    .metric-val { font-size: 28px; font-weight: 700; margin: 4px 0; }
+    .metric-label { font-size: 12px; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; }
 </style>
 """, unsafe_allow_html=True)
 
-
-# ── HELPERS ──
-def kpi(label, value, sub="", color=BLUE):
-    st.markdown(f"""<div class="kpi-card">
-        <div class="kpi-label">{label}</div>
-        <div class="kpi-val" style="color:{color}">{value}</div>
-        <div class="kpi-sub" style="color:{GRAY}">{sub}</div>
-    </div>""", unsafe_allow_html=True)
+def get_logo_b64():
+    with open("logo.png", "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
 def insight(text):
-    st.markdown(f'<div class="insight-box"><p>💡 {text}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="insight-card"><p>💡 <strong>Insight:</strong> {text}</p></div>', unsafe_allow_html=True)
 
 def cta(text):
-    st.markdown(f'<div class="cta-box"><p>🎯 {text}</p></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="cta-card"><p>🎯 <strong>Recommended action:</strong> {text}</p></div>', unsafe_allow_html=True)
 
 def rate_by(data, col):
-    if len(data) == 0:
-        return pd.DataFrame({col: [], "Rate": []})
+    if len(data) == 0: return pd.DataFrame({col: [], "Attrition Rate (%)": []})
     r = data.groupby(col)["Attrition_flag"].mean().reset_index()
-    r.columns = [col, "Rate"]
-    r["Rate"] = (r["Rate"] * 100).round(1)
+    r.columns = [col, "Attrition Rate (%)"]
+    r["Attrition Rate (%)"] = (r["Attrition Rate (%)"] * 100).round(1)
     return r
 
 def safe_rate(data, col, val):
     sub = data[data[col] == val]
-    if len(sub) == 0:
-        return 0.0
-    return round(sub["Attrition_flag"].mean() * 100, 1)
+    return round(sub["Attrition_flag"].mean() * 100, 1) if len(sub) > 0 else 0.0
 
-def chart_defaults(fig, h=400):
-    fig.update_layout(
-        plot_bgcolor=WHITE, paper_bgcolor=WHITE,
-        font=dict(color=DARK, size=12),
-        margin=dict(t=50, b=40, l=50, r=20), height=h,
-        xaxis_title="", yaxis_title="Attrition rate (%)"
-    )
-    return fig
+def add_baseline_trace(fig, baseline, x_range):
+    fig.add_trace(go.Scatter(
+        x=x_range, y=[baseline]*len(x_range),
+        mode="lines", name=f"Company average ({baseline:.1f}%)",
+        line=dict(dash="dash", color="red", width=2),
+        showlegend=True
+    ))
 
-def add_baseline(fig, val):
-    fig.add_hline(y=val, line_dash="dash", line_color="#EF4444",
-                  annotation_text=f"Avg: {val:.1f}%", annotation_font_color="#EF4444")
-    return fig
+def show(fig):
+    st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
-
-
+# ── DATA ──
 @st.cache_data
 def load_data():
     df = pd.read_csv("employees.csv")
-    for col, cats in {
+    ordinals = {
         "Work-Life Balance": ["Poor", "Fair", "Good", "Excellent"],
         "Job Level": ["Entry", "Mid", "Senior"],
         "Job Satisfaction": ["Low", "Medium", "High", "Very High"],
         "Education Level": ["High School", "Associate Degree", "Bachelor's Degree", "Master's Degree", "PhD"],
-    }.items():
-        df[col] = pd.Categorical(df[col], categories=cats, ordered=True)
+        "Performance Rating": ["Low", "Below Average", "Average", "High"],
+        "Company Reputation": ["Poor", "Fair", "Good"],
+        "Company Size": ["Small", "Medium", "Large"],
+    }
+    for col, cats in ordinals.items():
+        if col in df.columns:
+            df[col] = pd.Categorical(df[col], categories=cats, ordered=True)
     df["Attrition_flag"] = (df["Attrition"] == "Left").astype(int)
     return df
 
 df = load_data()
-overall_rate = round(df["Attrition_flag"].mean() * 100, 1)
+baseline = round(df["Attrition_flag"].mean() * 100, 1)
 
 
-# ── HEADER ──
-import base64
-with open("logo.png", "rb") as f:
-    logo_b64 = base64.b64encode(f.read()).decode()
+# ══════════════════════════════════════
+# PAGES
+# ══════════════════════════════════════
 
-st.markdown(f"""
-<div style="display:flex;align-items:center;gap:14px;margin-bottom:4px;flex-direction:row-reverse;justify-content:center">
-    <img src="data:image/png;base64,{logo_b64}" style="height:50px"/>
-    <div>
-        <h2 style="margin:0;color:{DARK}">Employee Attrition Analytics</h2>
-        <p style="margin:0;font-size:13px;color:{GRAY}">{len(df):,} employees  •  Company-wide attrition: {overall_rate}%</p>
+def page_home():
+    logo_b64 = get_logo_b64()
+    st.markdown(f"""
+    <div style="text-align:center;padding:40px 0 20px">
+        <img src="data:image/png;base64,{logo_b64}" style="height:80px;margin-bottom:16px"/>
+        <h1 style="margin:0">Week #1 Task:</h1>
+        <h2 style="margin:0;color:{PRIMARY}">Employee Attrition Intelligence Dashboard</h2>
+        <p style="margin-top:12px;font-size:16px;opacity:0.7">{len(df):,} employees analysed</p>
     </div>
-</div>
-""", unsafe_allow_html=True)
+    """, unsafe_allow_html=True)
 
-st.markdown("---")
+    st.divider()
 
+    left_count = df["Attrition_flag"].sum()
+    stayed_count = len(df) - left_count
 
-# ── SIDEBAR ──
-st.sidebar.image("logo.png", width=70)
-st.sidebar.markdown(f"<h4 style='color:{DARK}'>Filters</h4>", unsafe_allow_html=True)
-sel_level = st.sidebar.multiselect("Job level", ["Entry", "Mid", "Senior"], default=["Entry", "Mid", "Senior"])
-sel_remote = st.sidebar.multiselect("Remote work", ["Yes", "No"], default=["Yes", "No"])
-sel_gender = st.sidebar.multiselect("Gender", df["Gender"].unique().tolist(), default=df["Gender"].unique().tolist())
-sel_overtime = st.sidebar.multiselect("Overtime", ["Yes", "No"], default=["Yes", "No"])
-
-fdf = df[
-    df["Job Level"].isin(sel_level) &
-    df["Remote Work"].isin(sel_remote) &
-    df["Gender"].isin(sel_gender) &
-    df["Overtime"].isin(sel_overtime)
-]
-
-if len(fdf) == 0:
-    st.warning("No data matches your filters. Please adjust the sidebar selections.")
-    st.stop()
-
-f_rate = round(fdf["Attrition_flag"].mean() * 100, 1)
-
-
-# ── KPIs (all dynamic) ──
-k1, k2, k3, k4 = st.columns(4)
-with k1: kpi("Headcount", f"{len(fdf):,}", f"of {len(df):,} total")
-with k2: kpi("Attrition rate", f"{f_rate}%", "filtered selection", "#EF4444" if f_rate > overall_rate else "#10B981")
-with k3:
-    if "Entry" in sel_level and len(fdf[fdf["Job Level"]=="Entry"]) > 0:
-        er = safe_rate(fdf, "Job Level", "Entry")
-        kpi("Entry-level risk", f"{er}%", "highest risk segment", "#EF4444" if er > f_rate else BLUE)
-    else:
-        kpi("Entry-level risk", "N/A", "not in current filter", GRAY)
-with k4:
-    if "Yes" in sel_remote and len(fdf[fdf["Remote Work"]=="Yes"]) > 0:
-        rr = safe_rate(fdf, "Remote Work", "Yes")
-        kpi("Remote attrition", f"{rr}%", "lowest risk segment", "#10B981")
-    else:
-        kpi("Remote attrition", "N/A", "not in current filter", GRAY)
-
-st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
-
-
-# ── TABS ──
-tab1, tab2, tab3 = st.tabs(["📈 Key drivers", "🔎 Supporting factors", "🔀 Risk combinations"])
-
-
-# ══════════ TAB 1: KEY DRIVERS ══════════
-with tab1:
-
-   
-    jl = rate_by(fdf, "Job Level")
-    if len(jl) > 0:
-        highest_jl = jl.loc[jl["Rate"].idxmax()]
-        lowest_jl = jl.loc[jl["Rate"].idxmin()]
-        fig = px.bar(jl, x="Job Level", y="Rate", text_auto=".1f",
-                     color_discrete_sequence=[BLUE], title="Attrition by job level")
-        add_baseline(fig, f_rate)
-        chart_defaults(fig, 420)
-        fig.update_traces(textposition="outside", width=0.5)
-        st.plotly_chart(fig, use_container_width=True)
-        gap = round(highest_jl["Rate"] - lowest_jl["Rate"], 1)
-        insight(f'{highest_jl["Job Level"]}-level employees leave at {highest_jl["Rate"]}% vs {lowest_jl["Job Level"]} at {lowest_jl["Rate"]}% — a {gap}pp gap. For every 10 new hires at the {highest_jl["Job Level"]} level, roughly {round(highest_jl["Rate"]/10)} will leave. This makes early-tenure retention the highest-impact area for HR to focus on.')
-        cta(f'1) Implement a 90-day structured onboarding program for all {highest_jl["Job Level"]}-level hires by next quarter. 2) Mandate monthly 1-on-1s between new hires and managers for the first 12 months. 3) Publish internal promotion timelines — employees who see a 18-month path to Mid-level are less likely to look externally.')
-
-    st.markdown("---")
-
-    rw = rate_by(fdf, "Remote Work")
-    if len(rw) > 0:
-        fig = px.bar(rw, x="Remote Work", y="Rate", text_auto=".1f",
-                     color="Remote Work",
-                     color_discrete_map={"Yes": "#10B981", "No": "#EF4444"},
-                     title="Attrition by remote work status")
-        add_baseline(fig, f_rate)
-        chart_defaults(fig, 400)
-        fig.update_layout(showlegend=False)
-        fig.update_traces(textposition="outside", width=0.3)
-        st.plotly_chart(fig, use_container_width=True)
-        onsite = safe_rate(fdf, "Remote Work", "No")
-        remote = safe_rate(fdf, "Remote Work", "Yes")
-        gap_rw = round(onsite - remote, 1)
-        insight(f'On-site employees leave at {onsite}% — more than double remote workers at {remote}%. The {gap_rw}pp gap makes remote work the single largest difference between any two groups in this category. This is also one of the easiest levers to act on operationally.')
-        cta(f'1) Audit which on-site roles genuinely require physical presence vs. those that could be hybrid. 2) Roll out a hybrid policy (3 office / 2 remote) as the new default for eligible roles within 60 days. 3) For roles that must stay on-site, offer compressed 4-day weeks as an alternative flexibility option.')
-
-    st.markdown("---")
-
-   
-    wlb = rate_by(fdf, "Work-Life Balance")
-    if len(wlb) > 0:
-        fig = px.area(wlb, x="Work-Life Balance", y="Rate", markers=True,
-                      title="Attrition by work-life balance",
-                      color_discrete_sequence=[BLUE])
-        add_baseline(fig, f_rate)
-        chart_defaults(fig, 400)
-        fig.update_traces(fill="tozeroy", fillcolor="rgba(67,56,224,0.1)")
-        st.plotly_chart(fig, use_container_width=True)
-        highest_wlb = wlb.loc[wlb["Rate"].idxmax()]
-        lowest_wlb = wlb.loc[wlb["Rate"].idxmin()]
-        gap_wlb = round(highest_wlb["Rate"] - lowest_wlb["Rate"], 1)
-        insight(f'Attrition drops from {highest_wlb["Rate"]}% ({highest_wlb["Work-Life Balance"]}) to {lowest_wlb["Rate"]}% ({lowest_wlb["Work-Life Balance"]}) — a {gap_wlb}pp gradient. This is the clearest dose-response relationship in the dataset: as balance improves, attrition drops consistently at each level. Further analysis is needed to determine whether this is driven by team-level management, company policy, or role type.')
-        cta(f'1) Break down work-life balance scores by team/manager to identify whether the issue is concentrated in specific teams or company-wide. 2) Introduce a monthly pulse survey (3 questions max) to catch deterioration early. 3) For teams with consistently Poor/Fair scores, investigate root causes — workload, management style, or role design — before prescribing solutions.')
-
-
-with tab2:
-
-    c1, c2 = st.columns(2)
-
+    c1, c2, c3, c4 = st.columns(4)
     with c1:
-    
-        gen = rate_by(fdf, "Gender")
-        if len(gen) > 0:
-            f_r = safe_rate(fdf, "Gender", "Female")
-            m_r = safe_rate(fdf, "Gender", "Male")
-            raw_gap = round(abs(f_r - m_r), 1)
-
-            # Control: Gender × Job Level
-            gen_jl = fdf.groupby(["Gender", "Job Level"])["Attrition_flag"].mean().reset_index()
-            gen_jl.columns = ["Gender", "Job Level", "Rate"]
-            gen_jl["Rate"] = (gen_jl["Rate"] * 100).round(1)
-
-          
-            controlled_gaps = []
-            for level in fdf["Job Level"].dropna().unique():
-                sub = gen_jl[gen_jl["Job Level"] == level]
-                if len(sub) == 2:
-                    f_val = sub[sub["Gender"] == "Female"]["Rate"].values[0]
-                    m_val = sub[sub["Gender"] == "Male"]["Rate"].values[0]
-                    controlled_gaps.append(abs(f_val - m_val))
-            avg_controlled_gap = round(np.mean(controlled_gaps), 1) if controlled_gaps else 0
-
-         
-            fig = px.bar(gen_jl, x="Job Level", y="Rate", color="Gender",
-                         barmode="group", text_auto=".1f",
-                         color_discrete_map={"Female": "#7C78EA", "Male": BLUE},
-                         title="Gender × Job level (controlling for level)")
-            add_baseline(fig, f_rate)
-            chart_defaults(fig)
-            fig.update_layout(legend=dict(orientation="h", y=-0.15))
-            fig.update_traces(textposition="outside")
-            st.plotly_chart(fig, use_container_width=True)
-
-           
-            if avg_controlled_gap >= 5:
-                insight(f'Raw gap: Female {f_r}% vs Male {m_r}% ({raw_gap}pp). After controlling for job level, the gap averages {avg_controlled_gap}pp within each level — the gender effect persists independently of seniority. This warrants a gender-specific investigation.')
-                cta(f'1) The gap is real and not explained by job level alone. Conduct focus groups with female employees to identify retention barriers. 2) Audit promotion rates by gender — if female employees are promoted slower, that compounds the effect. 3) Review exit interview data for gender-specific patterns.')
-            else:
-                insight(f'Raw gap: Female {f_r}% vs Male {m_r}% ({raw_gap}pp). But after controlling for job level, the gap shrinks to {avg_controlled_gap}pp — the gender difference is largely explained by job level distribution, not gender itself.')
-                cta(f'1) The gender gap is structural, not gender-specific. Check whether female employees are overrepresented in Entry-level roles. 2) If so, the fix is faster promotion pathways and remote access for Entry-level — which solves both the gender gap and the job level gap simultaneously.')
-
+        st.markdown(f'''<div class="metric-card">
+            <div class="metric-label">Total employees</div>
+            <div class="metric-val" style="color:{PRIMARY}">{len(df):,}</div>
+        </div>''', unsafe_allow_html=True)
     with c2:
-        sat = rate_by(fdf, "Job Satisfaction")
-        if len(sat) > 0:
-            fig = px.line(sat, x="Job Satisfaction", y="Rate", markers=True,
-                          title="Satisfaction paradox",
-                          color_discrete_sequence=[BLUE])
-            add_baseline(fig, f_rate)
-            chart_defaults(fig)
-            fig.update_traces(line_width=3, marker_size=10)
-            st.plotly_chart(fig, use_container_width=True)
-
-            low_r = safe_rate(fdf, "Job Satisfaction", "Low")
-            vh_r = safe_rate(fdf, "Job Satisfaction", "Very High")
-
-            
-            vh_left = fdf[(fdf["Job Satisfaction"] == "Very High") & (fdf["Attrition"] == "Left")]
-            vh_stayed = fdf[(fdf["Job Satisfaction"] == "Very High") & (fdf["Attrition"] == "Stayed")]
-
-            if len(vh_left) > 0 and len(vh_stayed) > 0:
-               
-                vh_left_entry = round((vh_left["Job Level"] == "Entry").mean() * 100, 1)
-                vh_stayed_entry = round((vh_stayed["Job Level"] == "Entry").mean() * 100, 1)
-             
-                vh_left_onsite = round((vh_left["Remote Work"] == "No").mean() * 100, 1)
-                vh_stayed_onsite = round((vh_stayed["Remote Work"] == "No").mean() * 100, 1)
-                
-                vh_left_ot = round((vh_left["Overtime"] == "Yes").mean() * 100, 1)
-                vh_stayed_ot = round((vh_stayed["Overtime"] == "Yes").mean() * 100, 1)
-
-                insight(f'Low satisfaction ({low_r}%) and Very High ({vh_r}%) both have peak attrition. Profiling Very High leavers vs stayers: {vh_left_entry}% of leavers are Entry-level (vs {vh_stayed_entry}% of stayers), {vh_left_onsite}% work on-site (vs {vh_stayed_onsite}%), and {vh_left_ot}% do overtime (vs {vh_stayed_ot}%).')
-
-                
-                drivers = []
-                if vh_left_entry - vh_stayed_entry > 5:
-                    drivers.append(f"entry-level concentration ({vh_left_entry}% vs {vh_stayed_entry}%)")
-                if vh_left_onsite - vh_stayed_onsite > 5:
-                    drivers.append(f"on-site work ({vh_left_onsite}% vs {vh_stayed_onsite}%)")
-                if vh_left_ot - vh_stayed_ot > 5:
-                    drivers.append(f"overtime ({vh_left_ot}% vs {vh_stayed_ot}%)")
-
-                if drivers:
-                    cta(f'The paradox is partially explained by: {", ".join(drivers)}. Very High satisfaction does not protect against structural problems. Fix the underlying drivers (job level, remote access, overtime) — satisfaction scores will follow. Do not invest in satisfaction improvement programs when the real issues are operational.')
-                else:
-                    cta(f'Very High leavers and stayers have identical profiles — the paradox is not explained by job level, remote work, or overtime. This points to a data quality issue: employees may feel pressure to rate satisfaction high. Replace the annual written survey with quarterly 5-minute 1-on-1 conversations between employees and a neutral HR contact (not their direct manager). Verbal, private, off-the-record conversations surface honest feedback that written forms never will.')
-            else:
-                insight(f'Low satisfaction ({low_r}%) and Very High ({vh_r}%) both peak. Insufficient data in current filter to profile Very High leavers.')
-                cta('Broaden filters to enable cross-referencing of Very High satisfaction leavers.')
-
-    c3, c4 = st.columns(2)
-
+        st.markdown(f'''<div class="metric-card">
+            <div class="metric-label">Overall attrition</div>
+            <div class="metric-val" style="color:{RED}">{baseline}%</div>
+        </div>''', unsafe_allow_html=True)
     with c3:
-        ot = rate_by(fdf, "Overtime")
-        if len(ot) > 0:
-            fig = px.bar(ot, x="Overtime", y="Rate", text_auto=".1f",
-                         color="Overtime", color_discrete_map={"Yes": "#EF4444", "No": "#10B981"},
-                         title="Attrition by overtime")
-            add_baseline(fig, f_rate)
-            chart_defaults(fig)
-            fig.update_layout(showlegend=False)
-            fig.update_traces(textposition="outside", width=0.4)
-            st.plotly_chart(fig, use_container_width=True)
-            ot_y = safe_rate(fdf, "Overtime", "Yes")
-            ot_n = safe_rate(fdf, "Overtime", "No")
-            insight(f'Overtime employees leave at {ot_y}% vs {ot_n}% — a {round(ot_y - ot_n, 1)}pp gap. On its own, this is modest. But overtime rarely exists in isolation — it compounds with on-site work and poor work-life balance. An on-site employee doing overtime with Poor balance is in the highest-risk zone of the entire dataset.')
-            cta(f'1) Build an overtime dashboard alert: flag any employee exceeding 10hrs/week overtime for 3+ consecutive months. 2) When overtime spikes in a team, investigate staffing — chronic overtime usually means understaffing, not underperformance. 3) Offer overtime-heavy teams priority access to remote days as an immediate pressure release.')
-
+        st.markdown(f'''<div class="metric-card">
+            <div class="metric-label">Employees lost</div>
+            <div class="metric-val" style="color:{RED}">{left_count:,}</div>
+        </div>''', unsafe_allow_html=True)
     with c4:
-        edu = rate_by(fdf, "Education Level")
-        if len(edu) > 0:
-            fig = px.bar(edu, x="Education Level", y="Rate", text_auto=".1f",
-                         color_discrete_sequence=[BLUE], title="Attrition by education level")
-            add_baseline(fig, f_rate)
-            chart_defaults(fig)
-            fig.update_traces(textposition="outside")
-            st.plotly_chart(fig, use_container_width=True)
+        st.markdown(f'''<div class="metric-card">
+            <div class="metric-label">Employees retained</div>
+            <div class="metric-val" style="color:{GREEN}">{stayed_count:,}</div>
+        </div>''', unsafe_allow_html=True)
 
-            phd_r = safe_rate(fdf, "Education Level", "PhD")
-
-           
-            non_phd_levels = ["High School", "Associate Degree", "Bachelor's Degree", "Master's Degree"]
-            non_phd_rates = [safe_rate(fdf, "Education Level", lvl) for lvl in non_phd_levels if safe_rate(fdf, "Education Level", lvl) > 0]
-            non_phd_spread = round(max(non_phd_rates) - min(non_phd_rates), 1) if non_phd_rates else 0
-            non_phd_avg = round(np.mean(non_phd_rates), 1) if non_phd_rates else 0
-
-            # Profile PhD vs non-PhD
-            phd = fdf[fdf["Education Level"] == "PhD"]
-            non_phd = fdf[fdf["Education Level"] != "PhD"]
-
-            if len(phd) > 0 and len(non_phd) > 0:
-                phd_senior = round((phd["Job Level"] == "Senior").mean() * 100, 1)
-                non_phd_senior = round((non_phd["Job Level"] == "Senior").mean() * 100, 1)
-                phd_remote = round((phd["Remote Work"] == "Yes").mean() * 100, 1)
-                non_phd_remote = round((non_phd["Remote Work"] == "Yes").mean() * 100, 1)
-
-                insight(f'High School through Master\'s all cluster at ~{non_phd_avg}% (spread of just {non_phd_spread}pp). Education level has zero differentiating power across these 4 groups. PhD is the only outlier at {phd_r}%. Profiling: {phd_senior}% of PhDs are Senior-level (vs {non_phd_senior}% non-PhD), {phd_remote}% have remote access (vs {non_phd_remote}%).')
-
-                advantages = []
-                if phd_senior - non_phd_senior > 5:
-                    advantages.append(f"seniority ({phd_senior}% vs {non_phd_senior}%)")
-                if phd_remote - non_phd_remote > 5:
-                    advantages.append(f"remote access ({phd_remote}% vs {non_phd_remote}%)")
-
-                if advantages:
-                    cta(f'Do not build education-based retention programs — 4 out of 5 levels have identical attrition. The PhD gap is explained by: {", ".join(advantages)}. PhDs retain better because they have more of what retains everyone. Extend seniority pathways and remote access to non-PhD employees instead of treating education as the lever.')
-                else:
-                    cta(f'Do not build education-based retention programs — 4 out of 5 levels have identical attrition. PhD employees retain better despite similar seniority and remote access profiles, suggesting the retention factor is role-specific (autonomy, challenge, specialization). Test whether giving non-PhD employees more ownership and specialization within their roles improves retention.')
-            else:
-                insight(f'PhD attrition is {phd_r}% vs ~{non_phd_avg}% for all others. Insufficient data to profile.')
-                cta('Broaden filters to enable PhD profiling.')
+    st.divider()
 
 
-with tab3:
-    st.markdown(f"<p style='color:{GRAY};font-size:14px'>Single-variable analysis misses compounding effects. These show which <b>combinations</b> create the highest risk.</p>", unsafe_allow_html=True)
+def page_foundations():
+    tab1, tab2, tab3 = st.tabs(["The headline", "Overtime", "Remote work"])
 
-    inter1 = fdf.groupby(["Job Level", "Work-Life Balance"])["Attrition_flag"].mean().reset_index()
-    inter1.columns = ["Job Level", "Work-Life Balance", "Rate"]
-    inter1["Rate"] = (inter1["Rate"] * 100).round(1)
-    if len(inter1) > 0:
-        fig1 = px.bar(inter1, x="Job Level", y="Rate", color="Work-Life Balance",
-                      barmode="group", text_auto=".1f",
-                      color_discrete_sequence=["#1E1B4B", "#4338E0", "#7C78EA", "#C7C5F7"],
-                      title="Job level × Work-life balance")
-        chart_defaults(fig1, 440)
-        fig1.update_layout(legend=dict(orientation="h", y=-0.15))
-        fig1.update_traces(textposition="outside")
-        st.plotly_chart(fig1, use_container_width=True)
-        worst = inter1.loc[inter1["Rate"].idxmax()]
-        best = inter1.loc[inter1["Rate"].idxmin()]
-        insight(f'The data is clear: {worst["Job Level"]}-level employees with {worst["Work-Life Balance"]} work-life balance leave at {worst["Rate"]}%, while {best["Job Level"]}-level with {best["Work-Life Balance"]} balance leave at just {best["Rate"]}%. That is a {round(worst["Rate"] - best["Rate"], 1)}pp gap between the worst and best combination. Retention programs that target Job Level OR Work-Life Balance separately will underperform — the real leverage is at the intersection.')
-        cta(f'1) Generate a list of all Entry-level employees currently scoring Poor or Fair on work-life balance — this is your immediate flight risk list. 2) Assign each person on that list a senior mentor and offer one flexible work arrangement within 30 days. 3) Set a 90-day follow-up to measure whether their balance score improved and whether they are still with the company.')
+    # ── Q1 ──
+    with tab1:
+        st.subheader("What share of employees left, and which role loses the most?")
 
-    st.markdown("---")
+        left_count = df["Attrition_flag"].sum()
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f'''<div class="metric-card">
+                <div class="metric-label">Overall attrition</div>
+                <div class="metric-val" style="color:{RED}">{baseline}%</div>
+            </div>''', unsafe_allow_html=True)
+        with c2:
+            st.markdown(f'''<div class="metric-card">
+                <div class="metric-label">Employees lost</div>
+                <div class="metric-val" style="color:{RED}">{left_count:,}</div>
+            </div>''', unsafe_allow_html=True)
+        with c3:
+            st.markdown(f'''<div class="metric-card">
+                <div class="metric-label">Total headcount</div>
+                <div class="metric-val" style="color:{PRIMARY}">{len(df):,}</div>
+            </div>''', unsafe_allow_html=True)
+        
+        st.markdown("<div style='height:16px'></div>", unsafe_allow_html=True)
 
-    inter2 = fdf.groupby(["Overtime", "Remote Work"])["Attrition_flag"].mean().reset_index()
-    inter2.columns = ["Overtime", "Remote Work", "Rate"]
-    inter2["Rate"] = (inter2["Rate"] * 100).round(1)
-    if len(inter2) > 0:
-        fig2 = px.bar(inter2, x="Overtime", y="Rate", color="Remote Work",
-                      barmode="group", text_auto=".1f",
-                      color_discrete_sequence=[BLUE, "#10B981"],
-                      title="Overtime × Remote work")
-        chart_defaults(fig2, 440)
-        fig2.update_layout(legend=dict(orientation="h", y=-0.15))
-        fig2.update_traces(textposition="outside")
-        st.plotly_chart(fig2, use_container_width=True)
-        worst2 = inter2.loc[inter2["Rate"].idxmax()]
-        best2 = inter2.loc[inter2["Rate"].idxmin()]
-        insight(f'On-site employees doing overtime leave at {worst2["Rate"]}%, while remote employees doing the same overtime leave at {best2["Rate"]}%. Remote work doesn\'t just reduce attrition on its own — it appears to buffer the negative effect of overtime. This suggests you don\'t necessarily need to eliminate overtime; giving overtime workers flexibility may be enough.')
-        cta(f'1) Identify the top 10 teams with the highest overtime hours AND on-site requirements. 2) Pilot a "remote overtime" policy for these teams: any week an employee exceeds 8hrs overtime, they get 2 remote days the following week. 3) Measure attrition in pilot teams vs control teams over 6 months. If it works, scale company-wide.')
+        jr = rate_by(df, "Job Role")
+        fig = px.bar(jr.sort_values("Attrition Rate (%)"),
+                     x="Attrition Rate (%)", y="Job Role", orientation="h",
+                     text_auto=".1f",
+                     title="Attrition rate by job role — which function leaks most?")
+        fig.update_traces(marker_color=PRIMARY)
+        add_baseline_trace(fig, baseline, [jr["Attrition Rate (%)"].min()-2, jr["Attrition Rate (%)"].max()+2])
+        fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=400)
+        show(fig)
 
-    st.markdown("---")
+        highest = jr.loc[jr["Attrition Rate (%)"].idxmax()]
+        lowest = jr.loc[jr["Attrition Rate (%)"].idxmin()]
+        spread = round(highest["Attrition Rate (%)"] - lowest["Attrition Rate (%)"], 1)
 
-    # -- Dynamic highest risk segment --
-    risk_seg = fdf[
-        (fdf["Job Level"] == "Entry") &
-        (fdf["Remote Work"] == "No") &
-        (fdf["Work-Life Balance"].isin(["Poor", "Fair"]))
-    ]
-    if len(risk_seg) > 0:
-        risk_rate = round(risk_seg["Attrition_flag"].mean() * 100, 1)
-        risk_count = len(risk_seg)
-        total_pct = round(risk_count / len(fdf) * 100, 1)
-    else:
-        risk_rate = "N/A"
-        risk_count = 0
-        total_pct = 0
+        insight(f'The spread between the highest ({highest["Job Role"]} at {highest["Attrition Rate (%)"]:.1f}%) and lowest ({lowest["Job Role"]} at {lowest["Attrition Rate (%)"]:.1f}%) role is only {spread}pp. Attrition is a company-wide problem, not a departmental one — no single role is an outlier.')
+        cta(f'Do not launch role-specific retention programs. The {spread}pp spread does not justify targeting one department over another. Instead, focus retention budget on the cross-cutting drivers identified in later sections (job level, remote work, work-life balance).')
 
-    st.markdown(f"""<div style='background:{LIGHT_BLUE};border-radius:12px;padding:20px;text-align:center'>
-        <p style='font-size:15px;font-weight:600;color:{DARK};margin:0 0 6px'>⚠️ Highest risk profile</p>
-        <p style='font-size:20px;font-weight:700;color:{BLUE};margin:0'>Entry-level  ×  On-site  ×  Poor/Fair work-life balance</p>
-        <p style='font-size:16px;font-weight:600;color:#EF4444;margin:8px 0 0'>{risk_rate}% attrition in this group  •  {risk_count:,} employees ({total_pct}% of filtered data)</p>
-        <p style='font-size:12px;color:{GRAY};margin:6px 0 0'>⚠️ Small subgroup — interpret with caution. This rate reflects the combined effect of the three strongest actionable drivers. Use as a priority signal for manager outreach, not as a forecast.</p>
-    </div>""", unsafe_allow_html=True)
+    # ── Q2 ──
+    with tab2:
+        st.subheader("Are overtime employees more likely to leave?")
+
+        ot = rate_by(df, "Overtime")
+        fig = px.bar(ot, x="Overtime", y="Attrition Rate (%)", color="Overtime",
+                     text_auto=".1f",
+                     title="Attrition rate by overtime status",
+                     color_discrete_map={"Yes": "#EF4444", "No": "#22C55E"})
+        add_baseline_trace(fig, baseline, ot["Overtime"].tolist())
+        fig.update_layout(xaxis_title="", height=400, showlegend=True)
+        fig.update_traces(width=0.4, selector=dict(type="bar"))
+        show(fig)
+
+        ot_y = safe_rate(df, "Overtime", "Yes")
+        ot_n = safe_rate(df, "Overtime", "No")
+        gap = round(ot_y - ot_n, 1)
+        ot_count = len(df[df["Overtime"]=="Yes"])
+        ot_pct = round(ot_count / len(df) * 100, 1)
+
+        insight(f'Overtime employees leave at {ot_y}% vs {ot_n}% — a {gap}pp increase. {ot_count:,} employees ({ot_pct}%) currently work overtime. While the gap is modest alone, overtime compounds with other risk factors (on-site work, poor balance) as shown in later sections.')
+        cta(f'1) Flag employees exceeding 10+ overtime hours/week for 3 consecutive months. 2) When overtime spikes in a team, investigate staffing levels — chronic overtime usually signals understaffing. 3) Offer overtime-heavy teams priority access to remote days as an immediate pressure release.')
+
+    # ── Q3 ──
+    with tab3:
+        st.subheader("Does remote work keep people?")
+
+        rw = rate_by(df, "Remote Work")
+        remote_count = len(df[df["Remote Work"]=="Yes"])
+        remote_pct = round(remote_count / len(df) * 100, 1)
+
+        fig = px.bar(rw, x="Remote Work", y="Attrition Rate (%)", color="Remote Work",
+                     text_auto=".1f",
+                     title="Attrition rate by remote work status",
+                     color_discrete_map={"Yes": "#22C55E", "No": "#EF4444"})
+        add_baseline_trace(fig, baseline, rw["Remote Work"].tolist())
+        fig.update_layout(xaxis_title="", height=400)
+        fig.update_traces(width=0.4, selector=dict(type="bar"))
+        show(fig)
+
+        onsite = safe_rate(df, "Remote Work", "No")
+        remote = safe_rate(df, "Remote Work", "Yes")
+        gap_rw = round(onsite - remote, 1)
+
+        insight(f'On-site employees leave at {onsite}% vs {remote}% for remote workers — a {gap_rw}pp gap. However, only {remote_count:,} employees ({remote_pct}%) currently work remotely. The effect size is large, but the small sample limits confidence. We cannot conclude that moving everyone remote would halve attrition — self-selection bias is likely (remote-eligible roles may differ structurally).')
+        cta(f'1) Audit which on-site roles could realistically support hybrid work. 2) Pilot a hybrid policy (3 office / 2 remote) in 2-3 high-attrition teams and measure retention over 6 months before scaling. 3) For must-be-on-site roles, offer compressed workweeks as an alternative flexibility option.')
 
 
-st.markdown("---")
-st.markdown(f"<p style='text-align:center;font-size:12px;color:{GRAY}'>Built by Eng Rahma Saber   •  {len(df):,} employee records  •  Drivers validated by effect size analysis</p>", unsafe_allow_html=True)
+def page_comparison():
+    tab1, tab2, tab3, tab4 = st.tabs(["Pay fairness", "Retention timeline",
+                                       "Engagement warning signs", "Life stage"])
+
+    # ── Q4 ──
+    with tab1:
+        st.subheader("Within the same job level, does pay affect attrition?")
+
+        df["Income Quartile"] = pd.qcut(df["Monthly Income"], q=4,
+            labels=["Low Pay", "Lower-Mid Pay", "Upper-Mid Pay", "High Pay"])
+
+        pay = df.groupby(["Job Level", "Income Quartile"])["Attrition_flag"].mean().reset_index()
+        pay.columns = ["Job Level", "Income Quartile", "Attrition Rate (%)"]
+        pay["Attrition Rate (%)"] = (pay["Attrition Rate (%)"] * 100).round(1)
+
+        fig = px.line(pay, x="Income Quartile", y="Attrition Rate (%)", color="Job Level",
+                      markers=True,
+                      title="Attrition across pay quartiles within each job level — does more pay help?",
+                      color_discrete_sequence=[PRIMARY, "#7C78EA", "#C7C5F7"])
+        add_baseline_trace(fig, baseline, pay["Income Quartile"].unique().tolist())
+        fig.update_layout(xaxis_title="Pay quartile (within company)", yaxis_title="Attrition Rate (%)", height=420)
+        show(fig)
+
+        # Compute flatness
+        spreads = []
+        for level in df["Job Level"].cat.categories:
+            sub = pay[pay["Job Level"]==level]
+            if len(sub) > 1:
+                spreads.append({"Level": level, "Spread": round(sub["Attrition Rate (%)"].max() - sub["Attrition Rate (%)"].min(), 1)})
+        spread_df = pd.DataFrame(spreads)
+        max_spread = spread_df["Spread"].max()
+
+        insight(f'The lines are nearly flat. Within each job level, the gap between lowest and highest paid employees is at most {max_spread}pp. Entry-level attrition stays around 62-65% regardless of pay. Mid-level stays around 45-46%. Senior stays around 19-21%. Job level drives attrition — pay does not.')
+        cta(f'1) Do not use across-the-board salary increases as a retention tool — the data shows they will not reduce attrition. 2) Review pay bands for external competitiveness, but allocate retention budget toward career progression, mentorship, and remote access instead. 3) If Entry-level employees earn below market, fix that for fairness — but do not expect it to move the attrition needle.')
+
+    # ── Q5 ──
+    with tab2:
+        st.subheader("At what tenure stage is attrition highest?")
+
+        df["Tenure Stage"] = pd.cut(df["Years at Company"],
+            bins=[0, 1, 3, 5, 10, 20, 50],
+            labels=["< 1 Year", "1–3 Years", "3–5 Years", "5–10 Years", "10–20 Years", "20+ Years"],
+            include_lowest=True)
+
+        tenure = rate_by(df, "Tenure Stage")
+        fig = px.line(tenure, x="Tenure Stage", y="Attrition Rate (%)", markers=True,
+                      title="Attrition rate across employee tenure — when do people leave?")
+        fig.update_traces(line_color=PRIMARY, line_width=3, marker_size=10)
+        add_baseline_trace(fig, baseline, tenure["Tenure Stage"].tolist())
+        fig.update_layout(xaxis_title="Time at company", yaxis_title="Attrition Rate (%)", height=420)
+        show(fig)
+
+        peak = tenure.loc[tenure["Attrition Rate (%)"].idxmax()]
+        lowest = tenure.loc[tenure["Attrition Rate (%)"].idxmin()]
+
+        insight(f'Attrition peaks during the {peak["Tenure Stage"]} stage at {peak["Attrition Rate (%)"]:.1f}%, then drops to {lowest["Attrition Rate (%)"]:.1f}% for {lowest["Tenure Stage"]} employees. The biggest retention challenge is not onboarding — it is employees in the mid-career window who may start questioning their growth trajectory around year 3-5.')
+        cta(f'1) Launch a mid-career retention program targeting employees approaching their 3rd year — before they hit the peak risk zone. 2) Require career development discussions and promotion reviews before the 3-year mark. 3) Offer leadership tracks, skill certifications, or cross-functional projects as re-engagement hooks at the 2.5-year mark.')
+
+    # ── Q6 ──
+    with tab3:
+        st.subheader("Which satisfaction × balance combination is the strongest warning sign?")
+
+        df["Engagement Profile"] = df["Job Satisfaction"].astype(str) + " satisfaction + " + df["Work-Life Balance"].astype(str) + " balance"
+        eng = rate_by(df, "Engagement Profile").sort_values("Attrition Rate (%)", ascending=False)
+
+        fig = px.bar(eng.head(8), x="Attrition Rate (%)", y="Engagement Profile", orientation="h",
+                     text_auto=".1f",
+                     title="Top 8 highest-risk engagement profiles — satisfaction × work-life balance")
+        fig.update_traces(marker_color=PRIMARY)
+        add_baseline_trace(fig, baseline,
+                          [eng["Attrition Rate (%)"].min()-5, eng["Attrition Rate (%)"].max()+5])
+        fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=450)
+        show(fig)
+
+        worst = eng.iloc[0]
+        second = eng.iloc[1]
+
+        # Check if WLB dominates
+        poor_wlb_avg = rate_by(df, "Work-Life Balance")
+        poor_rate = safe_rate(df, "Work-Life Balance", "Poor")
+
+        insight(f'The highest-risk profile is "{worst["Engagement Profile"]}" at {worst["Attrition Rate (%)"]:.1f}%, followed by "{second["Engagement Profile"]}" at {second["Attrition Rate (%)"]:.1f}%. Notice that Poor balance appears in both top slots regardless of satisfaction level. Work-life balance is the dominant signal — even "Very High" satisfaction does not protect against poor balance.')
+        cta(f'1) Flag any employee reporting Poor work-life balance as at-risk, regardless of their satisfaction score — satisfaction surveys alone miss these people. 2) Require managers to hold a follow-up conversation within 2 weeks when an employee reports Poor or Fair balance for two consecutive periods. 3) Monitor workload and overtime for flagged employees before attrition occurs.')
+
+    # ── Q7 ──
+    with tab4:
+        st.subheader("Does life stage predict who leaves?")
+
+        df["Age Group"] = pd.cut(df["Age"], bins=[18, 25, 35, 45, 60],
+            labels=["18–25", "26–35", "36–45", "46–60"])
+        df["Dependent Group"] = pd.cut(df["Number of Dependents"], bins=[-1, 0, 2, 10],
+            labels=["None", "1–2", "3+"])
+
+        df_clean = df.dropna(subset=["Age Group", "Dependent Group"])
+        df_clean["Life Stage"] = (df_clean["Age Group"].astype(str) + " | "
+                                  + df_clean["Marital Status"] + " | "
+                                  + df_clean["Dependent Group"].astype(str))
+
+        life = rate_by(df_clean, "Life Stage").sort_values("Attrition Rate (%)", ascending=False)
+        life_counts = df_clean.groupby("Life Stage").size().reset_index(name="Count")
+        life = life.merge(life_counts, on="Life Stage")
+        life = life[life["Count"] >= 50]  # filter small groups
+
+        fig = px.bar(life.head(10), x="Attrition Rate (%)", y="Life Stage", orientation="h",
+                     text_auto=".1f",
+                     title="Top 10 highest-risk life-stage profiles (min 50 employees)")
+        fig.update_traces(marker_color=PRIMARY)
+        add_baseline_trace(fig, baseline,
+                          [life["Attrition Rate (%)"].min()-5, life["Attrition Rate (%)"].max()+5])
+        fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=480)
+        show(fig)
+
+        worst_ls = life.iloc[0]
+        above_baseline = round(worst_ls["Attrition Rate (%)"] - baseline, 1)
+
+        insight(f'The highest-risk life stage is "{worst_ls["Life Stage"]}" at {worst_ls["Attrition Rate (%)"]:.1f}% — {above_baseline}pp above the company average. Young, single employees with few dependents have the fewest personal anchors and the most career mobility. They are the easiest to lose and the hardest to retain through compensation alone.')
+        cta(f'1) Create a retention program for employees aged 18–35 who are single — focused on career acceleration, not benefits they do not value yet. 2) Offer fast-track certifications, mentorship pairings, and visible promotion timelines within the first 2 years. 3) Conduct stay-interviews with high-performing young employees every 6 months to surface flight risk early.')
+
+
+def page_synthesis():
+    tab1, tab2, tab3 = st.tabs(["Career stagnation", "Highest-risk profile",
+                                 "What moves the needle"])
+
+    # ── Q8 ──
+    with tab1:
+        st.subheader("Does feeling 'stuck' line up with leaving?")
+
+        df["Job Level Score"] = df["Job Level"].map({"Entry": 1, "Mid": 2, "Senior": 3}).astype(int)
+        df["Leadership Score"] = df["Leadership Opportunities"].map({"No": 0, "Yes": 1}).astype(int)
+        innovation_col = "Innovation Opportunities"
+        df["Innovation Score"] = df[innovation_col].map({"No": 0, "Yes": 1}).astype(int) if innovation_col in df.columns else 0
+        df["Growth Score"] = df["Number of Promotions"] + df["Job Level Score"] + df["Leadership Score"] + df["Innovation Score"]
+
+        growth = rate_by(df, "Growth Score")
+        fig = px.line(growth, x="Growth Score", y="Attrition Rate (%)", markers=True,
+                      title="Attrition by career growth score — does opportunity retain people?")
+        fig.update_traces(line_color=PRIMARY, line_width=3, marker_size=8)
+        add_baseline_trace(fig, baseline, growth["Growth Score"].tolist())
+        fig.update_layout(xaxis_title="Growth score (promotions + level + leadership + innovation)",
+                         yaxis_title="Attrition Rate (%)", height=420)
+        show(fig)
+
+        low_growth = growth[growth["Growth Score"] <= 2]["Attrition Rate (%)"].mean()
+        high_growth = growth[growth["Growth Score"] >= 5]["Attrition Rate (%)"].mean()
+        gap = round(low_growth - high_growth, 1)
+
+        insight(f'The relationship is nearly linear: employees with a growth score of 2 or below average {low_growth:.1f}% attrition, while those scoring 5+ average {high_growth:.1f}% — a {gap}pp gap. Promotions, seniority, and access to leadership/innovation opportunities all compound. Employees who feel stuck leave; employees who see growth stay.')
+        cta(f'1) Establish a formal internal mobility program — employees can apply for new roles or projects after 12 months. 2) Require managers to create documented career development plans for all Entry and Mid-level employees. 3) Set a KPI: every employee should receive at least one growth opportunity (promotion, certification, leadership assignment, or cross-functional project) within 18 months.')
+
+    # ── Q9 ──
+    with tab2:
+        st.subheader("What is the single highest-risk employee profile?")
+
+        risk = df.groupby(["Job Level", "Remote Work", "Work-Life Balance"]).agg(
+            Employees=("Attrition_flag", "count"),
+            Attrition_Rate=("Attrition_flag", "mean")
+        ).reset_index()
+        risk["Attrition_Rate"] = (risk["Attrition_Rate"] * 100).round(1)
+        risk["Profile"] = (risk["Job Level"].astype(str) + " | "
+                          + risk["Remote Work"] + " | "
+                          + risk["Work-Life Balance"].astype(str))
+        risk = risk[risk["Employees"] >= 100].sort_values("Attrition_Rate", ascending=False)
+
+        fig = px.bar(risk.head(10), x="Attrition_Rate", y="Profile", orientation="h",
+                     text=risk.head(10).apply(lambda r: f'{r["Attrition_Rate"]:.1f}% ({r["Employees"]:,} emp)', axis=1),
+                     title="Top 10 highest-risk profiles (min 100 employees) — attrition rate + headcount")
+        fig.update_traces(marker_color=PRIMARY, textposition="outside")
+        add_baseline_trace(fig, baseline, [0, risk["Attrition_Rate"].max()+10])
+        fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=480)
+        show(fig)
+
+        worst = risk.iloc[0]
+        above = round(worst["Attrition_Rate"] - baseline, 1)
+
+        insight(f'The highest-risk profile is **{worst["Profile"]}** at {worst["Attrition_Rate"]:.1f}% attrition — {above}pp above the company average of {baseline}%. This is not a niche group: {worst["Employees"]:,} employees match this profile. The pattern combines the three strongest independent drivers: job level, remote work access, and work-life balance.')
+        cta(f'1) Generate a list of all employees matching this profile — {worst["Employees"]:,} people who are immediate flight risks. 2) Within 30 days, provide each with at least one intervention: hybrid eligibility, flexible scheduling, or reduced overtime targets. 3) Assign a mentor and conduct monthly check-ins for 6 months. Measure whether attrition in this group drops below {baseline}% as the success threshold.')
+
+    # ── Q10 ──
+    with tab3:
+        st.subheader("If HR could fix one thing next quarter, what should it be?")
+
+        drivers = {
+            "Job Level": rate_by(df, "Job Level"),
+            "Remote Work": rate_by(df, "Remote Work"),
+            "Work-Life Balance": rate_by(df, "Work-Life Balance"),
+            "Overtime": rate_by(df, "Overtime"),
+        }
+        if "Company Reputation" in df.columns:
+            drivers["Company Reputation"] = rate_by(df, "Company Reputation")
+        if "Employee Recognition" in df.columns:
+            drivers["Employee Recognition"] = rate_by(df, "Employee Recognition")
+
+        ranking = []
+        for name, table in drivers.items():
+            max_shift = abs(table["Attrition Rate (%)"] - baseline).max()
+            ranking.append({"Driver": name, "Max shift from baseline (pp)": round(max_shift, 1)})
+        ranking = pd.DataFrame(ranking).sort_values("Max shift from baseline (pp)", ascending=False)
+
+        fig = px.bar(ranking, x="Max shift from baseline (pp)", y="Driver", orientation="h",
+                     text_auto=".1f",
+                     title="Which driver moves attrition the most? — maximum deviation from company average")
+        fig.update_traces(marker_color=PRIMARY)
+        fig.update_layout(yaxis_title="", xaxis_title="Percentage points from baseline", height=400)
+        show(fig)
+
+        top3 = ranking.head(3)
+        r1 = top3.iloc[0]
+        r2 = top3.iloc[1]
+        r3 = top3.iloc[2]
+
+        st.markdown("### Top 3 drivers ranked by impact")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.markdown(f'''<div class="metric-card">
+                <div class="metric-label">🥇 {r1['Driver']}</div>
+                <div class="metric-val" style="color:{RED}">{r1['Max shift from baseline (pp)']}pp</div>
+            </div>''', unsafe_allow_html=True)
+        with c2:
+            st.markdown(f'''<div class="metric-card">
+                <div class="metric-label">🥈 {r2['Driver']}</div>
+                <div class="metric-val" style="color:{PRIMARY}">{r2['Max shift from baseline (pp)']}pp</div>
+            </div>''', unsafe_allow_html=True)
+        with c3:
+            st.markdown(f'''<div class="metric-card">
+                <div class="metric-label">🥉 {r3['Driver']}</div>
+                <div class="metric-val" style="color:{PRIMARY}">{r3['Max shift from baseline (pp)']}pp</div>
+            </div>''', unsafe_allow_html=True)
+        
+        st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+        # Compute estimated impact for #1
+        top_driver = r1["Driver"]
+        top_table = drivers[top_driver]
+        worst_cat = top_table.loc[top_table["Attrition Rate (%)"].idxmax()]
+        best_cat = top_table.loc[top_table["Attrition Rate (%)"].idxmin()]
+        worst_count = len(df[df[top_driver]==worst_cat[top_driver]])
+        potential_saves = round(worst_count * (worst_cat["Attrition Rate (%)"] - best_cat["Attrition Rate (%)"]) / 100)
+
+        insight(f'{r1["Driver"]} has the largest impact at {r1["Max shift from baseline (pp)"]}pp, followed by {r2["Driver"]} ({r2["Max shift from baseline (pp)"]}pp) and {r3["Driver"]} ({r3["Max shift from baseline (pp)"]}pp). The top driver separates {worst_cat[top_driver]} ({worst_cat["Attrition Rate (%)"]:.1f}%) from {best_cat[top_driver]} ({best_cat["Attrition Rate (%)"]:.1f}%). If the worst-performing group could be brought to the best group\'s rate, an estimated {potential_saves:,} additional employees could be retained.')
+        cta(f'Fix {r1["Driver"]} first. For the {worst_count:,} employees in the {worst_cat[top_driver]} category: 1) Accelerate promotion pathways and career visibility within 90 days. 2) Pair with the #2 driver ({r2["Driver"]}) — employees affected by both should be the highest priority. 3) Set a quarterly attrition target for this group and track monthly. Estimated impact: up to {potential_saves:,} retained employees if the gap closes by half.')
+
+
+# ══════════════════════════════════════
+# NAVIGATION
+# ══════════════════════════════════════
+st.sidebar.image("logo.png", width=100)
+st.sidebar.divider()
+
+pg = st.navigation([
+    st.Page(page_home, title="Home", icon="🏠"),
+    st.Page(page_foundations, title="Foundations", icon="📊"),
+    st.Page(page_comparison, title="Comparison & Segmentation", icon="🔎"),
+    st.Page(page_synthesis, title="Synthesis & Decisions", icon="🎯"),
+])
+pg.run()
