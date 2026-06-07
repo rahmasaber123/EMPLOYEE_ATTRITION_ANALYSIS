@@ -62,13 +62,17 @@ def safe_rate(data, col, val):
     sub = data[data[col] == val]
     return round(sub["Attrition_flag"].mean() * 100, 1) if len(sub) > 0 else 0.0
 
-def add_baseline_trace(fig, baseline, x_range):
-    fig.add_trace(go.Scatter(
-        x=x_range, y=[baseline]*len(x_range),
-        mode="lines", name=f"Company average ({baseline:.1f}%)",
-        line=dict(dash="dash", color="red", width=2),
-        showlegend=True
-    ))
+def add_hbaseline(fig, val):
+    """Horizontal dashed line — for charts where y-axis is the rate (vertical bars, line charts)"""
+    fig.add_hline(y=val, line_dash="dash", line_color="red", line_width=2,
+                  annotation_text=f"Company avg: {val:.1f}%",
+                  annotation_font_color="red", annotation_font_size=12)
+
+def add_vbaseline(fig, val):
+    """Vertical dashed line — for charts where x-axis is the rate (horizontal bars)"""
+    fig.add_vline(x=val, line_dash="dash", line_color="red", line_width=2,
+                  annotation_text=f"Company avg: {val:.1f}%",
+                  annotation_font_color="red", annotation_font_size=12)
 
 def show(fig):
     st.plotly_chart(fig, use_container_width=True, theme="streamlit")
@@ -174,7 +178,7 @@ def page_foundations():
                      text_auto=".1f",
                      title="Attrition rate by job role — which function leaks most?")
         fig.update_traces(marker_color=PRIMARY)
-        add_baseline_trace(fig, baseline, [jr["Attrition Rate (%)"].min()-2, jr["Attrition Rate (%)"].max()+2])
+        add_vbaseline(fig, baseline)
         fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=400)
         show(fig)
 
@@ -194,7 +198,7 @@ def page_foundations():
                      text_auto=".1f",
                      title="Attrition rate by overtime status",
                      color_discrete_map={"Yes": "#EF4444", "No": "#22C55E"})
-        add_baseline_trace(fig, baseline, ot["Overtime"].tolist())
+        add_hbaseline(fig, baseline)
         fig.update_layout(xaxis_title="", height=400, showlegend=True)
         fig.update_traces(width=0.4, selector=dict(type="bar"))
         show(fig)
@@ -220,7 +224,7 @@ def page_foundations():
                      text_auto=".1f",
                      title="Attrition rate by remote work status",
                      color_discrete_map={"Yes": "#22C55E", "No": "#EF4444"})
-        add_baseline_trace(fig, baseline, rw["Remote Work"].tolist())
+        add_hbaseline(fig, baseline)
         fig.update_layout(xaxis_title="", height=400)
         fig.update_traces(width=0.4, selector=dict(type="bar"))
         show(fig)
@@ -252,7 +256,7 @@ def page_comparison():
                       markers=True,
                       title="Attrition across pay quartiles within each job level — does more pay help?",
                       color_discrete_sequence=[PRIMARY, "#7C78EA", "#C7C5F7"])
-        add_baseline_trace(fig, baseline, pay["Income Quartile"].unique().tolist())
+        add_hbaseline(fig, baseline)
         fig.update_layout(xaxis_title="Pay quartile (within company)", yaxis_title="Attrition Rate (%)", height=420)
         show(fig)
 
@@ -281,7 +285,7 @@ def page_comparison():
         fig = px.line(tenure, x="Tenure Stage", y="Attrition Rate (%)", markers=True,
                       title="Attrition rate across employee tenure — when do people leave?")
         fig.update_traces(line_color=PRIMARY, line_width=3, marker_size=10)
-        add_baseline_trace(fig, baseline, tenure["Tenure Stage"].tolist())
+        add_hbaseline(fig, baseline)
         fig.update_layout(xaxis_title="Time at company", yaxis_title="Attrition Rate (%)", height=420)
         show(fig)
 
@@ -302,8 +306,7 @@ def page_comparison():
                      text_auto=".1f",
                      title="Top 8 highest-risk engagement profiles — satisfaction × work-life balance")
         fig.update_traces(marker_color=PRIMARY)
-        add_baseline_trace(fig, baseline,
-                          [eng["Attrition Rate (%)"].min()-5, eng["Attrition Rate (%)"].max()+5])
+        add_vbaseline(fig, baseline)
         fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=450)
         show(fig)
 
@@ -340,8 +343,7 @@ def page_comparison():
                      text_auto=".1f",
                      title="Top 10 highest-risk life-stage profiles (min 50 employees)")
         fig.update_traces(marker_color=PRIMARY)
-        add_baseline_trace(fig, baseline,
-                          [life["Attrition Rate (%)"].min()-5, life["Attrition Rate (%)"].max()+5])
+        add_vbaseline(fig, baseline)
         fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=480)
         show(fig)
 
@@ -370,7 +372,7 @@ def page_synthesis():
         fig = px.line(growth, x="Growth Score", y="Attrition Rate (%)", markers=True,
                       title="Attrition by career growth score — does opportunity retain people?")
         fig.update_traces(line_color=PRIMARY, line_width=3, marker_size=8)
-        add_baseline_trace(fig, baseline, growth["Growth Score"].tolist())
+        add_hbaseline(fig, baseline)
         fig.update_layout(xaxis_title="Growth score (promotions + level + leadership + innovation)",
                          yaxis_title="Attrition Rate (%)", height=420)
         show(fig)
@@ -400,7 +402,7 @@ def page_synthesis():
                      text=risk.head(10).apply(lambda r: f'{r["Attrition_Rate"]:.1f}% ({r["Employees"]:,} emp)', axis=1),
                      title="Top 10 highest-risk profiles (min 100 employees) — attrition rate + headcount")
         fig.update_traces(marker_color=PRIMARY, textposition="outside")
-        add_baseline_trace(fig, baseline, [0, risk["Attrition_Rate"].max()+10])
+        add_vbaseline(fig, baseline)
         fig.update_layout(yaxis_title="", xaxis_title="Attrition Rate (%)", height=480)
         show(fig)
 
